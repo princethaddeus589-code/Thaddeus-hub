@@ -1,4 +1,7 @@
 import {useEffect,useState} from 'react'
+import {on as FB,auth} from './firebase.js'
+import {onAuthStateChanged} from 'firebase/auth'
+import {Login,Drawer} from './Extras.jsx'
 const K=import.meta.env.VITE_TMDB_KEY,T='https://api.themoviedb.org/3',IMG='https://image.tmdb.org/t/p/'
 const tm=(p,q='')=>fetch(`${T}${p}?api_key=${K}&language=en-US${q}`).then(r=>r.json())
 const norm=m=>({id:m.id,title:m.title,over:m.overview,year:(m.release_date||'').slice(0,4),
@@ -19,7 +22,7 @@ function Card({m,open}){return <button className="card" onClick={()=>open(m)}>
 function Row({title,items,open}){if(!items?.length)return null
   return <section className="row"><h3>{title}</h3><div className="strip">{items.map(m=><Card key={m.id} m={m} open={open}/>)}</div></section>}
 
-function Modal({m,close,mylist,toggle}){
+function Modal({m,close,mylist,toggle,auto}){
   const [d,setD]=useState(null),[mode,setMode]=useState(''),[busy,setBusy]=useState(false)
   const arc=m.archive
   useEffect(()=>{if(!arc)tm('/movie/'+m.id,'&append_to_response=videos').then(setD)},[m])
@@ -34,7 +37,7 @@ function Modal({m,close,mylist,toggle}){
     <button className="x" onClick={close}>✕</button>
     <div className="player">
       {mode==='play'&&arc&&<iframe src={`https://archive.org/embed/${arc}`} allowFullScreen title={m.title}/>}
-      {mode==='play'&&!arc&&tr&&<iframe src={`https://www.youtube.com/embed/${tr.key}?autoplay=1`} allow="autoplay;fullscreen" allowFullScreen title="trailer"/>}
+      {mode==='play'&&!arc&&tr&&<iframe src={`https://www.youtube.com/embed/${tr.key}?autoplay=${auto?1:0}`} allow="autoplay;fullscreen" allowFullScreen title="trailer"/>}
       {mode!=='play'&&<div className="pb" style={{backgroundImage:`url(${m.back||m.poster})`}}><div className="fade"/></div>}
     </div>
     <div className="info"><h2>{m.title}</h2>
@@ -51,7 +54,11 @@ function Modal({m,close,mylist,toggle}){
 export default function App(){
   const [intro,setIntro]=useState(true),[rows,setRows]=useState({}),[free,setFree]=useState([]),
     [hero,setHero]=useState(null),[sel,setSel]=useState(null),[q,setQ]=useState(''),[res,setRes]=useState(null),
-    [sc,setSc]=useState(false),[mylist,setML]=useState(()=>ls('th_list',[])),[view,setView]=useState('home')
+    [sc,setSc]=useState(false),[mylist,setML]=useState(()=>ls('th_list',[])),[view,setView]=useState('home'),
+    [user,setUser]=useState(FB?undefined:null),[guest,setGuest]=useState(false),[drawer,setDrawer]=useState(false),
+    [cfg,setCfg]=useState(()=>ls('th_cfg',{accent:'#e50914',auto:true,intro:true}))
+  useEffect(()=>{if(FB)return onAuthStateChanged(auth,setUser)},[])
+  useEffect(()=>{document.documentElement.style.setProperty('--r',cfg.accent);localStorage.setItem('th_cfg',JSON.stringify(cfg))},[cfg])
   useEffect(()=>{if(!K)return
     ROWS.forEach(([n,p,x])=>tm(p,x).then(j=>{const it=(j.results||[]).map(norm);setRows(r=>({...r,[n]:it}))
       if(n==='Trending Now')setHero(it.find(i=>i.back))}))},[])
@@ -63,14 +70,16 @@ export default function App(){
   useEffect(()=>{if(!q.trim()){setRes(null);return}
     const t=setTimeout(()=>tm('/search/movie','&query='+encodeURIComponent(q)).then(j=>setRes((j.results||[]).map(norm))),350);return()=>clearTimeout(t)},[q])
   const toggle=m=>setML(l=>{const n=l.some(x=>x.id===m.id)?l.filter(x=>x.id!==m.id):[...l,m];localStorage.setItem('th_list',JSON.stringify(n));return n})
-  if(intro)return <Intro done={()=>setIntro(false)}/>
+  if(intro&&cfg.intro)return <Intro done={()=>setIntro(false)}/>
+  if(user===undefined)return <div className="intro"/>
+  if(FB&&!user&&!guest)return <Login guest={()=>setGuest(true)}/>
   return <>
-    <nav className={sc?'nav solid':'nav'}><b className="logo" onClick={()=>{setView('home');scrollTo(0,0)}}>THADDEUS HUB</b>
+    <nav className={sc?'nav solid':'nav'}><button className="burger" onClick={()=>setDrawer(true)}>☰</button><b className="logo" onClick={()=>{setView('home');scrollTo(0,0)}}>THADDEUS HUB</b>
       <div className="links"><a className={view==='home'?'on':''} onClick={()=>setView('home')}>Home</a>
         <a className={view==='free'?'on':''} onClick={()=>setView('free')}>Free Movies</a>
         <a className={view==='list'?'on':''} onClick={()=>setView('list')}>My List</a></div>
       <input className="search" placeholder="Search titles…" value={q} onChange={e=>setQ(e.target.value)}/></nav>
-    {!K&&<div className="warn">Add your TMDB key as VITE_TMDB_KEY (see README) to load the movie catalog.</div>}
+    {!K&&<div className="warn">Add your TMDB key as VITE_TMDB_KEY to load the movie catalog.</div>}
     {res?<main className="pad"><h3>Results for “{q}”</h3><div className="grid">{res.map(m=><Card key={m.id} m={m} open={setSel}/>)}</div></main>
     :view==='home'?<>
       {hero&&<header className="hero" style={{backgroundImage:`url(${hero.back})`}}><div className="fade"/><div className="ht">
@@ -81,6 +90,7 @@ export default function App(){
         {ROWS.map(([n])=><Row key={n} title={n} items={rows[n]} open={setSel}/>)}</main></>
     :view==='free'?<main className="pad"><h3>Free full movies (public domain)</h3><div className="grid">{free.map(m=><Card key={m.id} m={m} open={setSel}/>)}</div></main>
     :<main className="pad"><h3>My List</h3>{mylist.length?<div className="grid">{mylist.map(m=><Card key={m.id} m={m} open={setSel}/>)}</div>:<p className="meta">Nothing saved yet.</p>}</main>}
-    {sel&&<Modal m={sel} close={()=>setSel(null)} mylist={mylist} toggle={toggle}/>}
+    {drawer&&<Drawer user={user} view={view} cfg={cfg} setCfg={setCfg} go={v=>{setView(v);setQ('');scrollTo(0,0)}} close={()=>setDrawer(false)} clearList={()=>{setML([]);localStorage.removeItem('th_list')}}/>}
+    {sel&&<Modal m={sel} auto={cfg.auto} close={()=>setSel(null)} mylist={mylist} toggle={toggle}/>}
     <footer>This product uses the TMDB API but is not endorsed or certified by TMDB. Full movies courtesy of the Internet Archive.</footer>
   </>}
