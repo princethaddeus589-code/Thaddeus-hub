@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react'
 import {on as FB,auth} from './firebase.js'
 import {onAuthStateChanged} from 'firebase/auth'
 import {Login,Drawer} from './Extras.jsx'
+import {useCloud} from './sync.js'
 const K=import.meta.env.VITE_TMDB_KEY,T='https://api.themoviedb.org/3',IMG='https://image.tmdb.org/t/p/'
 const tm=(p,q='')=>fetch(`${T}${p}?api_key=${K}&language=en-US${q}`).then(r=>r.json())
 const GN=[[28,'Action'],[12,'Adventure'],[16,'Animation'],[35,'Comedy'],[80,'Crime'],[99,'Documentary'],[18,'Drama'],[10751,'Family'],[14,'Fantasy'],[27,'Horror'],[9648,'Mystery'],[10749,'Romance'],[878,'Sci-Fi'],[53,'Thriller'],[10752,'War']]
@@ -81,7 +82,13 @@ export default function App(){
   useEffect(()=>{setProf(null)},[user?.uid])
   useEffect(()=>{if(user===undefined)return;if(!profs.length){const n=user?.displayName||user?.email?.split('@')[0]||'Guest';setProfs([{id:'p1',name:n,c:COL[0]}])}},[user])
   useEffect(()=>{localStorage.setItem('th_profs',JSON.stringify(profs))},[profs])
-  useEffect(()=>{setML(prof?ls('th_list_'+prof.id,[]):[])},[prof])
+    const [tick,setTick]=useState(0)
+  useEffect(()=>{setML(prof?ls('th_list_'+prof.id,[]):[])},[prof,tick])
+  const lists=Object.fromEntries(profs.map(p=>[p.id,p.id===prof?.id?mylist:ls('th_list_'+p.id,[])]))
+  useCloud(user,{profs,cfg,lists},d=>{
+    setProfs(d.profs);setCfg(d.cfg)
+    d.profs.forEach(p=>localStorage.setItem('th_list_'+p.id,JSON.stringify(d.lists?.[p.id]||[])))
+    setTick(t=>t+1)})
   useEffect(()=>{if(!K)return
     ROWS.forEach(([n,p,x])=>tm(p,x).then(j=>{const it=(j.results||[]).map(norm);setRows(r=>({...r,[n]:it}))
       if(n==='Your Next Watch')setHero(it.find(i=>i.big))}))},[])
